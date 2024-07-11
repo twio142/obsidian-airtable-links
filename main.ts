@@ -9,8 +9,24 @@ interface AirtableLinksSettings {
 }
 
 interface CacheRecord {
-	links: any[];
+	links: Link[];
 	cachedAt: Date;
+}
+
+class Link {
+	name: string;
+	url: string;
+	list: string;
+	done: boolean;
+	created: string;
+
+	constructor(data: { name: string; url: string; list: string; done: boolean; created: string }) {
+		this.name = data.name;
+		this.url = data.url;
+		this.list = data.list;
+		this.done = data.done;
+		this.created = data.created;
+	}
 }
 
 const DEFAULT_SETTINGS: AirtableLinksSettings = {
@@ -43,10 +59,10 @@ export default class AirtableLinks extends Plugin {
 
 	async GetAirtableLinks(listUrl: string) {
 		listUrl = listUrl.split('?')[0];
-		let result;
-		if (result = this.readCache(listUrl), result) {
-			result.cachedAt = new Date();
-			return result.links;
+		let record;
+		if (record = this.readCache(listUrl), record) {
+			record.cachedAt = new Date();
+			return record.links;
 		}
 		const {listsTableUrl, linksTableUrl, accessToken} = this.settings;
 		const listsMatch = listsTableUrl.match(this.AIRTABLE_URL_REGEX);
@@ -68,24 +84,24 @@ export default class AirtableLinks extends Plugin {
 			new Notice('No links found');
 			return;
 		}
-		links = links.map(l => l.fields);
+		links = links.map((l: { fields: any; }) => l.fields);
 		const listName = links[0]['List-Names'][links[0].Lists.indexOf(match[4])];
-		links = links.map(l => ({name: l.Name, url: l.URL, list: listName, done: !!l.Done, created: l.Created}));
-		this.CACHE[listUrl] = {
+		links = links.map((l: { Name: any; URL: any; Done: any; Created: any; }) => new Link({name: l.Name, url: l.URL, list: listName, done: !!l.Done, created: l.Created}));
+		this.cache.set(listUrl, {
 			links,
 			cachedAt: new Date()
-		};
-		return records;
+		});
+		return links;
 	}
 
 	readCache(key: string) {
-		let record = this.CACHE[key];
-		if (record && new Date() - record.cachedAt < 1000 * 60 * 3) {
+		let record = this.cache.get(key);
+		if (record && (new Date().getTime() - record.cachedAt.getTime()) < 1000 * 60 * 3) {
 			return record;
 		}
 	}
 
-	CACHE = new Map<string, CacheRecord>();
+	cache = new Map<string, CacheRecord>();
 
 	AIRTABLE_URL_REGEX = /https:\/\/airtable.com\/(app[^/]+)\/(tbl[^/]+)(\/viw[^/]+\/(rec[^/]+))?/;
 }
