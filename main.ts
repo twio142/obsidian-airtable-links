@@ -4,8 +4,9 @@ import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Set
 
 interface AirtableLinksSettings {
 	accessToken: string;
-	linksTableUrl: string;
-	listsTableUrl: string;
+	baseID: string;
+	linksTableID: string;
+	listsTableID: string;
 }
 
 interface CacheRecord {
@@ -29,12 +30,24 @@ class Link {
 	}
 }
 
-const DEFAULT_SETTINGS: AirtableLinksSettings = {
-	accessToken: '',
-	linksTableUrl: '',
-	listsTableUrl: '',
+class List {
+	name: string;
+	id: string;
+	links?: string[];
+	
+	constructor(data: { name: string; id: string, links?: string[] }) {
+		this.name = data.name;
+		this.id = data.id;
+		this.links = data.links || [];
+	}
 }
 
+const DEFAULT_SETTINGS: AirtableLinksSettings = {
+	accessToken: '',
+	baseID: '',
+	linksTableID: '',
+	listsTableID: '',
+}
 
 export default class AirtableLinks extends Plugin {
 	settings: AirtableLinksSettings;
@@ -57,41 +70,63 @@ export default class AirtableLinks extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	async GetAirtableLinks(listUrl: string) {
-		listUrl = listUrl.split('?')[0];
-		let record;
-		if (record = this.readCache(listUrl), record) {
+	async getAirtableLinks(listID: string) {
+		if (!this.REGEX.recordID.test(listID)) {
+			throw new Error('Invalid List ID');
+		}
+		let record = this.readCache(listID);
+		if (record) {
 			record.cachedAt = new Date();
 			return record.links;
 		}
-		const {listsTableUrl, linksTableUrl, accessToken} = this.settings;
-		const listsMatch = listsTableUrl.match(this.AIRTABLE_URL_REGEX);
-		const linksMatch = linksTableUrl.match(this.AIRTABLE_URL_REGEX);
-		const match = listUrl.match(this.AIRTABLE_URL_REGEX);
-		if (!match || match[1] !== listsMatch[1] || match[2] !== listsMatch[2] || !match[4]) {
-			new Notice('Invalid list URL');
-			return;
+		const {baseID, linksTableID, accessToken} = this.settings;
+		let list = await this.getAirtableList(listID);
+		if (list.links.length === 0) {
+			throw new Error('List has no links');
 		}
-		const requestUrl = `https://api.airtable.com/v0/${linksMatch[1]}/${linksMatch[2]}?filterByFormula=FIND(%22${listUrl}%22%2C%7BList-URLs%7D)`;
-		const response = await fetch(requestUrl, {
+		const requestURL = `https://api.airtable.com/v0/${baseID}/${linksTableID}/listRecords`;
+		const response = await fetch(requestURL, {
+			method: "POST",
 			headers: {
-				Authorization: `Bearer ${accessToken}`
-			}
+				"Authorization": `Bearer ${accessToken}`,
+				"Content-Type": "application/json"
+			},
+			body: JSON.stringify({
+				filterByFormula: `FIND(RIGHT({Record URL}, 17), "${list.links.join(',')}")`
+			})
 		});
 		const data = await response.json();
 		let links = data?.records;
 		if (!links || links.length === 0) {
-			new Notice('No links found');
-			return;
+			throw new Error('No links found');
 		}
 		links = links.map((l: { fields: any; }) => l.fields);
-		const listName = links[0]['List-Names'][links[0].Lists.indexOf(match[4])];
-		links = links.map((l: { Name: any; URL: any; Done: any; Created: any; }) => new Link({name: l.Name, url: l.URL, list: listName, done: !!l.Done, created: l.Created}));
-		this.cache.set(listUrl, {
+		links = links.map((l: { Name: any; URL: any; Done: any; Created: any; }) => new Link({name: l.Name, url: l.URL, list: list.name, done: !!l.Done, created: l.Created}));
+		this.cache.set(listID, {
 			links,
 			cachedAt: new Date()
 		});
 		return links;
+	}
+
+	async getAirtableList(listID: string) {
+		if (!this.REGEX.recordID.test(listID)) {
+			throw new Error('Invalid List ID');
+		}
+		const {baseID, listsTableID, accessToken} = this.settings;
+		const requestURL = `https://api.airtable.com/v0/${baseID}/${listsTableID}/${listID}`;
+		const response = await fetch(requestURL, {
+			headers: { Authorization: `Bearer ${accessToken}` }
+		});
+		const data = await response.json();
+		if (!data || !data.fields) {
+			throw new Error('List not found');
+		}
+		return new List({
+			name: data.fields.Name || 'Unnamed List',
+			id: data.id,
+			links: data.fields.Links
+		});
 	}
 
 	readCache(key: string) {
@@ -102,8 +137,12 @@ export default class AirtableLinks extends Plugin {
 	}
 
 	cache = new Map<string, CacheRecord>();
-
-	AIRTABLE_URL_REGEX = /https:\/\/airtable.com\/(app[^/]+)\/(tbl[^/]+)(\/viw[^/]+\/(rec[^/]+))?/;
+	
+	REGEX = {
+		baseID: /^app[a-zA-Z0-9]{9,}$/,
+		tableID: /^tbl[a-zA-Z0-9]{9,}$/,
+		recordID: /^rec[a-zA-Z0-9]{9,}$/,
+	};
 }
 
 class SettingTab extends PluginSettingTab {
@@ -133,36 +172,53 @@ class SettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('Lists Table URL')
-			.setDesc('URL of the Airtable table containing lists')
+			.setName('Base ID')
+			.setDesc('ID of the Airtable base')
 			.addText(text => text
-				.setPlaceholder('Enter table URL')
-				.setValue(this.plugin.settings.listsTableUrl)
+				.setPlaceholder('Enter base ID')
+				.setValue(this.plugin.settings.baseID)
 				.onChange(async (value) => {
 					value = value.split('?')[0];
-					if (!this.plugin.AIRTABLE_URL_REGEX.test(value)) {
-						new Notice('Invalid Airtable URL');
+					if (!this.plugin.REGEX.baseID.test(value)) {
+						new Notice('Invalid Base ID');
 						return;
 					}
-					console.log('Lists URL: ' + value);
-					this.plugin.settings.listsTableUrl = value;
+					console.log('Base ID: ' + value);
+					this.plugin.settings.baseID = value;
 					await this.plugin.saveSettings();
 				}));
 
 		new Setting(containerEl)
-			.setName('Links Table URL')
-			.setDesc('URL of the Airtable table containing links')
+			.setName('Lists Table ID')
+			.setDesc('ID of the Airtable table containing lists')
 			.addText(text => text
-				.setPlaceholder('Enter table URL')
-				.setValue(this.plugin.settings.linksTableUrl)
+				.setPlaceholder('Enter table ID')
+				.setValue(this.plugin.settings.listsTableID)
 				.onChange(async (value) => {
 					value = value.split('?')[0];
-					if (!this.plugin.AIRTABLE_URL_REGEX.test(value)) {
-						new Notice('Invalid Airtable URL');
+					if (!this.plugin.REGEX.tableID.test(value)) {
+						new Notice('Invalid Table ID');
 						return;
 					}
-					console.log('Links URL: ' + value);
-					this.plugin.settings.linksTableUrl = value;
+					console.log('Lists ID: ' + value);
+					this.plugin.settings.listsTableID = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Links Table ID')
+			.setDesc('ID of the Airtable table containing links')
+			.addText(text => text
+				.setPlaceholder('Enter table ID')
+				.setValue(this.plugin.settings.linksTableID)
+				.onChange(async (value) => {
+					value = value.split('?')[0];
+					if (!this.plugin.REGEX.tableID.test(value)) {
+						new Notice('Invalid Table ID');
+						return;
+					}
+					console.log('Links ID: ' + value);
+					this.plugin.settings.linksTableID = value;
 					await this.plugin.saveSettings();
 				}));
 	}
