@@ -34,7 +34,7 @@ class List {
 	name: string;
 	id: string;
 	links?: string[];
-	
+
 	constructor(data: { name: string; id: string, links?: string[] }) {
 		this.name = data.name;
 		this.id = data.id;
@@ -79,7 +79,7 @@ export default class AirtableLinks extends Plugin {
 			record.cachedAt = new Date();
 			return record.links;
 		}
-		const {baseID, linksTableID, accessToken} = this.settings;
+		const { baseID, linksTableID, accessToken } = this.settings;
 		let list = await this.getAirtableList(listID);
 		if (list.links.length === 0) {
 			throw new Error('List has no links');
@@ -101,7 +101,7 @@ export default class AirtableLinks extends Plugin {
 			throw new Error('No links found');
 		}
 		links = links.map((l: { fields: any; }) => l.fields);
-		links = links.map((l: { Name: any; URL: any; Done: any; Created: any; }) => new Link({name: l.Name, url: l.URL, list: list.name, done: !!l.Done, created: l.Created}));
+		links = links.map((l: { Name: any; URL: any; Done: any; Created: any; }) => new Link({ name: l.Name, url: l.URL, list: list.name, done: !!l.Done, created: l.Created }));
 		this.cache.set(listID, {
 			links,
 			cachedAt: new Date()
@@ -113,7 +113,7 @@ export default class AirtableLinks extends Plugin {
 		if (!this.REGEX.recordID.test(listID)) {
 			throw new Error('Invalid List ID');
 		}
-		const {baseID, listsTableID, accessToken} = this.settings;
+		const { baseID, listsTableID, accessToken } = this.settings;
 		const requestURL = `https://api.airtable.com/v0/${baseID}/${listsTableID}/${listID}`;
 		const response = await fetch(requestURL, {
 			headers: { Authorization: `Bearer ${accessToken}` }
@@ -137,7 +137,7 @@ export default class AirtableLinks extends Plugin {
 	}
 
 	cache = new Map<string, CacheRecord>();
-	
+
 	REGEX = {
 		baseID: /^app[a-zA-Z0-9]{9,}$/,
 		tableID: /^tbl[a-zA-Z0-9]{9,}$/,
@@ -154,11 +154,11 @@ class SettingTab extends PluginSettingTab {
 	}
 
 	display(): void {
-		const {containerEl} = this;
+		const { containerEl } = this;
 
 		containerEl.empty();
 
-		containerEl.createEl('h2', {text: 'Settings for my awesome plugin.'});
+		containerEl.createEl('h2', { text: 'Settings for my awesome plugin.' });
 
 		new Setting(containerEl)
 			.setName('Airtable Personal Access Token')
