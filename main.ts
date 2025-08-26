@@ -18,13 +18,15 @@ class Link {
 	name: string;
 	url: string;
 	list: string;
+	listURL?: string;
 	done: boolean;
 	created: string;
 
-	constructor(data: { name: string; url: string; list: string; done: boolean; created: string }) {
+	constructor(data: { name: string; url: string; list: string; listURL: string; done: boolean; created: string }) {
 		this.name = data.name;
 		this.url = data.url;
 		this.list = data.list;
+		this.listURL = data.listURL;
 		this.done = data.done;
 		this.created = data.created;
 	}
@@ -33,9 +35,10 @@ class Link {
 class List {
 	name: string;
 	id: string;
+	url: string;
 	links?: string[];
 
-	constructor(data: { name: string; id: string, links?: string[] }) {
+	constructor(data: { name: string; id: string, url: string, links?: string[] }) {
 		this.name = data.name;
 		this.id = data.id;
 		this.links = data.links || [];
@@ -101,7 +104,7 @@ export default class AirtableLinks extends Plugin {
 			throw new Error('No links found');
 		}
 		links = links.map((l: { fields: any; }) => l.fields);
-		links = links.map((l: { Name: any; URL: any; Done: any; Created: any; }) => new Link({ name: l.Name, url: l.URL, list: list.name, done: !!l.Done, created: l.Created }));
+		links = links.map((l: { Name: any; URL: any; Done: any; Created: any; }) => new Link({ name: l.Name, url: l.URL, list: list.name, listURL: list.url, done: !!l.Done, created: l.Created }));
 		this.cache.set(listID, {
 			links,
 			cachedAt: new Date()
@@ -125,6 +128,7 @@ export default class AirtableLinks extends Plugin {
 		return new List({
 			name: data.fields.Name || 'Unnamed List',
 			id: data.id,
+			url: `https://airtable.com/${baseID}/${listsTableID}/${data.id}`,
 			links: data.fields.Links
 		});
 	}
