@@ -1,26 +1,12 @@
 # Obsidian Airtable Links
 
-List Airtable links in a code block.
+Fetch links from **my** personal Airtable setup, which I use as a bookmark manager / read-it-later.
 
-Use my personal Airtable base for collecting links, which consists of two tables:
+The base has two tables:
 
-- **Links**: Contains the links.
-- **List**: Contains the list of links.
+- **Links** – stores individual links.
+- **List** – stores collections of links.
 
-This plugins takes a **list** from the List table and displays its **links** in a table.
+This plugin retrieves links from a given list.
 
-## To-Do
-
-- Implement codeblock processor.
-    - Process codeblocks marked as `airtable`
-    - Retrieve the record ID in it, and fetch the links from Airtable
-    - Render a table with dataview API. Filter or sort links based on the codeblock.
-
-### Example
-
-```airtable
-list = recXXXXXXXXX
-where done = 0
-order by name desc
-limit 10
-```
+You can then use the **Dataview API** to render the links in Obsidian.
