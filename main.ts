@@ -1,11 +1,9 @@
 /* eslint-disable no-new */
 import type { App } from 'obsidian';
-import { Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
-
-// Remember to rename these classes and interfaces!
+import { Notice, Plugin, PluginSettingTab, SecretComponent, Setting } from 'obsidian';
 
 interface AirtableLinksSettings {
-  accessToken: string
+  accessTokenSecretName: string
   baseID: string
   linksTableID: string
   listsTableID: string
@@ -48,7 +46,7 @@ class List {
 }
 
 const DEFAULT_SETTINGS: AirtableLinksSettings = {
-  accessToken: '',
+  accessTokenSecretName: '',
   baseID: '',
   linksTableID: '',
   listsTableID: '',
@@ -59,6 +57,7 @@ export default class AirtableLinks extends Plugin {
 
   async onload() {
     await this.loadSettings();
+    await this.migrateTokenToSecretStorage();
 
     this.addSettingTab(new SettingTab(this.app, this));
   }
@@ -75,6 +74,36 @@ export default class AirtableLinks extends Plugin {
     await this.saveData(this.settings);
   }
 
+  async resolveAccessToken(): Promise<string> {
+    const { accessTokenSecretName } = this.settings;
+    if (!accessTokenSecretName) {
+      new Notice('Airtable Links: No token configured. Open Settings to select a secret.');
+      throw new Error('Airtable Links: No token configured.');
+    }
+    const token = this.app.secretStorage.getSecret(accessTokenSecretName);
+    if (!token) {
+      new Notice('Airtable Links: Token secret not found. Open Settings to re-select your secret.');
+      throw new Error(`Airtable Links: Secret "${accessTokenSecretName}" not found in secret storage.`);
+    }
+    return token;
+  }
+
+  async migrateTokenToSecretStorage(): Promise<void> {
+    const legacyToken = (this.settings as any).accessToken as string | undefined;
+    if (!legacyToken) return;
+
+    const MIGRATION_SECRET_NAME = 'obsidian-airtable-links-token';
+    try {
+      this.app.secretStorage.setSecret(MIGRATION_SECRET_NAME, legacyToken);
+      this.settings.accessTokenSecretName = MIGRATION_SECRET_NAME;
+      delete (this.settings as any).accessToken;
+      await this.saveSettings();
+    }
+    catch {
+      new Notice('Airtable Links: Failed to migrate token to secret storage. Please re-enter it in Settings.');
+    }
+  }
+
   async getAirtableLinks(listID: string) {
     if (!this.REGEX.recordID.test(listID)) {
       throw new Error('Invalid List ID');
@@ -84,7 +113,8 @@ export default class AirtableLinks extends Plugin {
       record.cachedAt = new Date();
       return record.links;
     }
-    const { baseID, linksTableID, accessToken } = this.settings;
+    const { baseID, linksTableID } = this.settings;
+    const accessToken = await this.resolveAccessToken();
     const list = await this.getAirtableList(listID);
     if (list.links.length === 0) {
       throw new Error('List has no links');
@@ -118,7 +148,8 @@ export default class AirtableLinks extends Plugin {
     if (!this.REGEX.recordID.test(listID)) {
       throw new Error('Invalid List ID');
     }
-    const { baseID, listsTableID, accessToken } = this.settings;
+    const { baseID, listsTableID } = this.settings;
+    const accessToken = await this.resolveAccessToken();
     const requestURL = `https://api.airtable.com/v0/${baseID}/${listsTableID}/${listID}`;
     const response = await fetch(requestURL, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -164,18 +195,22 @@ class SettingTab extends PluginSettingTab {
 
     containerEl.empty();
 
-    containerEl.createEl('h2', { text: 'Settings for my awesome plugin.' });
+    containerEl.createEl('h2', { text: 'Airtable Links Settings' });
 
     new Setting(containerEl)
       .setName('Airtable Personal Access Token')
-      .addText(text => text
-        .setPlaceholder('Enter your token')
-        .setValue(this.plugin.settings.accessToken)
+      .setDesc('Select the Obsidian secret that contains your Airtable token.')
+      .addComponent(el => new SecretComponent(this.app, el)
+        .setValue(this.plugin.settings.accessTokenSecretName)
         .onChange(async (value) => {
-          console.log(`Access Token: ${value}`);
-          this.plugin.settings.accessToken = value;
+          this.plugin.settings.accessTokenSecretName = value;
           await this.plugin.saveSettings();
         }));
+
+    containerEl.createEl('p', {
+      text: 'Note: Secrets are stored locally on this device and will not sync to other devices via Obsidian Sync.',
+      cls: 'setting-item-description',
+    });
 
     new Setting(containerEl)
       .setName('Base ID')
